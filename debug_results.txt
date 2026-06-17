@@ -1,0 +1,40 @@
+=====================================================================================
+RESULTADOS DO DIMENSIONAMENTO DA JUNTA PARAFUSADA
+=====================================================================================
+
+COMPARAÇÃO DE TORQUES:
+-------------------------------------------------------------------------------------
+Torque aplicado (entrada):           182.1 N·mm
+Torque ótimo COEMI (atrito):       533.3 N·mm
+Recomendação:                  Usar 533 N·mm (maior valor)
+
+=====================================================================================
+MÉTODO 1: SHIGLEY (Tensão combinada von Mises) - Torque: 182.1 N·mm
+=====================================================================================
+Parafuso crítico: Todos
+FS mínimo do parafuso:        1.003 OK
+FS da junta (atrito):         0.341 CRÍTICO
+FS crítico (mínimo):          0.341
+
+=====================================================================================
+MÉTODO 2: COEMI (Dimensionamento por atrito) - Torque: 533.3 N·mm
+=====================================================================================
+Parafuso crítico: Todos
+FS mínimo do parafuso:        0.461 CRÍTICO
+FS da junta (atrito):         1.000 (ótimo ~= 1.0)
+FS crítico (mínimo):          0.461
+
+DETALHES POR PARAFUSO (Torque do usuário):
+-------------------------------------------------------------------------------------
+B1    | FS parafuso:   1.003 | Fp:     569.1 N | σeq:    638.3 MPa
+B2    | FS parafuso:   1.003 | Fp:     569.1 N | σeq:    638.3 MPa
+B3    | FS parafuso:   1.003 | Fp:     569.1 N | σeq:    638.3 MPa
+
+=====================================================================================
+COMPARAÇÃO FINAL:
+  Shigley (T=182.1): FS=0.341
+  COEMI ótimo (T=533.3): FS=0.461
+
+RECOMENDAÇÃO: REVISÃO NECESSÁRIA - Ambos os métodos críticos
+=====================================================================================
+
