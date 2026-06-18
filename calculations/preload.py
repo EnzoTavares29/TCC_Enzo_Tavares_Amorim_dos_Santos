@@ -2,6 +2,10 @@ class PreloadCalculator:
     """
     Cálculo de pré-carga a partir do torque (Shigley)
     T = K * Fp * d  ->  Fp = T / (K*d)
+
+    Notes:
+    - Inputs: `torque_Nmm` in N·mm, `diameter_mm` in mm, `K` dimensionless.
+    - Returns: preload force `Fp` in N.
     """
 
     def __init__(self, torque_Nmm, diameter_mm, K=0.20):
@@ -10,4 +14,7 @@ class PreloadCalculator:
         self.K = K
 
     def preload_force(self):
-        return self.T / (self.K * self.d)
+        # Prevent division by zero
+        if self.K * self.d == 0:
+            return 0.0
+        return self.T / (self.K * self.d)  # returns N

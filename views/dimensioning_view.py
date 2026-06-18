@@ -42,7 +42,7 @@ class DimensioningView(tk.Frame):
         # friction inputs
         ttk.Label(self, text="Coeficiente de atrito da junta μ").grid(row=2, column=0, sticky="w", padx=10)
         self.mu_entry = ttk.Entry(self)
-        self.mu_entry.insert(0, "0.15")
+        self.mu_entry.insert(0, "0.4")
         self.mu_entry.grid(row=2, column=1, sticky="ew", padx=10)
 
         ttk.Label(self, text="Coeficiente K (torque)").grid(row=3, column=0, sticky="w", padx=10)
@@ -50,7 +50,7 @@ class DimensioningView(tk.Frame):
         self.k_entry.insert(0, "0.20")
         self.k_entry.grid(row=3, column=1, sticky="ew", padx=10)
 
-        ttk.Label(self, text="Dica: μ ≈ 0.15 para aço seco, K ≈ 0.20 para torque típico.", foreground="blue").grid(row=4, column=0, columnspan=2, sticky="w", padx=10, pady=(0,6))
+        ttk.Label(self, text="Dica: μ ≈ 0.4 para aço seco, K ≈ 0.20 para torque típico.", foreground="blue").grid(row=4, column=0, columnspan=2, sticky="w", padx=10, pady=(0,6))
 
         # calculate button
         row = 5
@@ -91,15 +91,15 @@ class DimensioningView(tk.Frame):
     def show_torque_explanation(self):
         """Show how the torque suggestion is calculated."""
         msg = (
-            "Torque sugerido\n\n"
-            "A pré-carga estimada usa 70% do limite de escoamento:\n"
-            "  Fp = 0.70 × Sy × At\n\n"
+            "Torque sugerido (Cenário A - Junta de Apoio)\n\n"
+            "A pré-carga padrão usa 50% do limite de escoamento:\n"
+            "  Fp = 0.50 × Sy × At\n\n"
             "O torque de aperto é calculado por:\n"
             "  T = K × Fp × d\n\n"
             "Onde:\n"
-            "  K = coeficiente de atrito do parafuso\n"
+            "  K = coeficiente de atrito da rosca (típico: 0.20)\n"
             "  d = diâmetro nominal do parafuso (mm)\n"
-            "  T = torque em N·mm"
+            "  T = torque em N·m"
         )
         messagebox.showinfo("Cálculo do torque", msg)
 
@@ -294,7 +294,7 @@ class DimensioningView(tk.Frame):
         text.configure(state="disabled")
 
     def suggest_torque(self):
-        """Sugestão: 70% de Sy * At"""
+        """Sugestão: 50% de Sy * At (torque padrão de montagem)"""
         if not self.bolt_props:
             messagebox.showerror("Erro", "Propriedades do parafuso não definidas")
             return
@@ -303,11 +303,12 @@ class DimensioningView(tk.Frame):
         Sy = self.bolt_props.sy  # MPa
         d = self.bolt_props.nominal_diameter  # mm
 
-        # Pré-carga em N: Fp = 0.7 * Sy(MPa) * At(mm²) = 0.7 * Sy * At (N)
-        Fp = 0.7 * Sy * At
-        # Torque em N·mm = K * Fp * d (com d em mm e Fp em N)
+        # Pré-carga padrão de montagem: 50% do limite de escoamento
+        # Fp = 0.50 * Sy(MPa) * At(mm²) [resultado em N]
+        Fp = 0.50 * Sy * At
+        # Torque em N·mm = K * Fp * d  (d em mm, Fp em N)
         T_Nmm = 0.20 * Fp * d
-        # UI uses N·m: convert
+        # Converter para N·m para exibir na UI
         T_Nm = T_Nmm / 1000.0
 
         self.torque_entry.delete(0, tk.END)
@@ -334,16 +335,59 @@ class DimensioningView(tk.Frame):
             return
 
         try:
-            calc = VectorLoadCalculator(
-                self.bolts, self.load, self.centroid,
-                self.bolt_props, torque, mu
-            )
-            result = calc.calculate()
-            optimal_torque = calc.optimal_torque()
+            # ===== CENÁRIO A: JUNTA DE APOIO =====
+            # Usa o torque inserido pelo usuário no campo de entrada
+            At = self.bolt_props.area_tracao  # mm²
+            Sy = self.bolt_props.sy  # MPa
+            d = self.bolt_props.nominal_diameter  # mm
 
-            result['T_optimal_Nm'] = optimal_torque / 1000.0
-            result['T_optimal_Nmm'] = optimal_torque
-            result['load_value'] = self.load.P
+            T_bearing_Nmm = torque          # N·mm — valor digitado pelo usuário
+            T_bearing_Nm  = torque_Nm       # N·m  — idem, para exibição
+
+            # Cálculo com o torque fornecido pelo usuário
+            calc_bearing = VectorLoadCalculator(
+                self.bolts, self.load, self.centroid,
+                self.bolt_props, T_bearing_Nmm, mu
+            )
+            result_bearing = calc_bearing.calculate()
+            
+            # ===== CENÁRIO B: JUNTA DE ATRITO =====
+            # Encontrar torque para FS_junta = 1.3
+            calc_friction = VectorLoadCalculator(
+                self.bolts, self.load, self.centroid,
+                self.bolt_props, 1000.0, mu  # initial dummy torque
+            )
+            
+            T_friction_Nmm, fs_junta, fs_parafuso, viavel = calc_friction.optimal_torque_for_fs_target(fs_target=1.3)
+            T_friction_Nm = T_friction_Nmm / 1000.0
+            
+            # Cálculo com torque ótimo de atrito (se viável)
+            result_friction = None
+            if viavel and T_friction_Nmm > 0:
+                calc_friction_final = VectorLoadCalculator(
+                    self.bolts, self.load, self.centroid,
+                    self.bolt_props, T_friction_Nmm, mu
+                )
+                result_friction = calc_friction_final.calculate()
+            
+            # Preparar resultado combinado
+            result = {
+                'T_user_Nm': torque_Nm,
+                'T_user_Nmm': torque,
+                'T_bearing_Nm': T_bearing_Nm,
+                'T_bearing_Nmm': T_bearing_Nmm,
+                'T_friction_optimal_Nm': T_friction_Nm if viavel else 0.0,
+                'T_friction_optimal_Nmm': T_friction_Nmm if viavel else 0.0,
+                'fs_friction_target': 1.3,
+                'friction_viable': viavel,
+                'load_value': self.load.P,
+                'per_bolt': result_bearing.get('per_bolt', []),
+                'critical_bolt': result_bearing.get('critical_bolt', ''),
+                'fs_bolt_min': result_bearing.get('fs_bolt_min', 0.0),
+                'fs_joint': result_bearing.get('fs_joint', 0.0),
+                'moment_vector': result_bearing.get('moment_vector', (0.0, 0.0, 0.0)),
+            }
+            
             self.last_result = result
 
         except ValueError as e:
@@ -353,89 +397,116 @@ class DimensioningView(tk.Frame):
         self.show_results_dual(result)
 
     def show_results_dual(self, result):
-        """Display results comparing user-provided and optimal COEMI torque"""
+        """
+        Display results with two independent scenarios:
+        - Scenario A (Bearing Joint): Standard assembly torque (70% Sy*At)
+        - Scenario B (Friction Joint): Optimal torque for FS_junta = 1.3
+        """
         self.result_box.delete("1.0", tk.END)
 
         T_user = result.get('T_user_Nm', 0)
-        T_optimal = result.get('T_optimal_Nm', 0)
+        T_bearing = result.get('T_bearing_Nm', 0)  # Torque padrão para Junta de Apoio
+        T_friction_optimal = result.get('T_friction_optimal_Nm', 0)  # Torque ótimo para FS_junta = 1.3
         F_load = result.get('load_value', 0)
+        fs_friction_target = result.get('fs_friction_target', 1.3)
         
         # Header
-        self.result_box.insert(tk.END, "-"*85 + "\n")
-        self.result_box.insert(tk.END, "Resultados do dimensionamento\n")
+        self.result_box.insert(tk.END, "="*95 + "\n")
+        self.result_box.insert(tk.END, "ANÁLISE DE DIMENSIONAMENTO DE JUNTA PARAFUSADA\n")
         self.result_box.insert(tk.END, f"Carregamento: {self.load.description()}\n")
-        self.result_box.insert(tk.END, "-"*85 + "\n\n")
+        self.result_box.insert(tk.END, "="*95 + "\n\n")
 
-        # Torque comparison
-        self.result_box.insert(tk.END, "Comparação de torques:\n")
-        self.result_box.insert(tk.END, "-"*85 + "\n")
-        self.result_box.insert(tk.END, f"Torque aplicado (entrada):      {T_user:10.3f} N·m\n")
-        self.result_box.insert(tk.END, f"Torque ótimo COEMI (atrito):  {T_optimal:10.3f} N·m\n")
-        self.result_box.insert(
-            tk.END,
-            f"Recomendação:                  Use um torque entre {min(T_user, T_optimal):.3f} e {max(T_user, T_optimal):.3f} N·m para manter margem de segurança, favorecendo o valor mais alto quando a junta de atrito for o critério dominante.\n\n"
+        # ========== CENÁRIO A: JUNTA DE APOIO ==========
+        self.result_box.insert(tk.END, "CENÁRIO A: JUNTA DE APOIO (Bearing Joint)\n")
+        self.result_box.insert(tk.END, "-"*95 + "\n")
+        self.result_box.insert(tk.END, f"Torque de aperto (inserido): {T_bearing:.3f} N·m\n")
+        self.result_box.insert(tk.END, f"Método: Tensão equivalente von Mises (Shigley)\n\n")
+        
+        # Calcular resultados para Cenário A
+        calc_bearing = VectorLoadCalculator(
+            self.bolts, self.load, self.centroid,
+            self.bolt_props, T_bearing * 1000.0, float(self.mu_entry.get())
         )
+        result_bearing = calc_bearing.calculate()
+        
+        self.result_box.insert(tk.END, f"Parafuso crítico: {result_bearing['critical_bolt']}\n")
+        self.result_box.insert(tk.END, f"FS mínimo do parafuso:     {result_bearing['fs_bolt_min']:.3f} {'✓ OK' if result_bearing['fs_bolt_min'] >= 1.0 else '✗ CRÍTICO'}\n")
+        self.result_box.insert(tk.END, f"FS contra separação:       {result_bearing['fs_joint']:.3f}\n")
+        moment = result_bearing.get('moment_vector', (0.0, 0.0, 0.0))
+        self.result_box.insert(tk.END, f"Momento resultante:        Mx={moment[0]:.1f} N·mm, My={moment[1]:.1f} N·mm, Mz={moment[2]:.1f} N·mm\n")
+        
+        bearing_status = "✓ VIÁVEL" if result_bearing['fs_bolt_min'] >= 1.0 else "✗ NÃO VIÁVEL"
+        self.result_box.insert(tk.END, f"Status Cenário A:          {bearing_status}\n\n")
 
-        # MÉTODO 1: SHIGLEY
-        self.result_box.insert(tk.END, "="*85 + "\n")
-        self.result_box.insert(tk.END, f"MÉTODO 1: SHIGLEY (Tensão combinada von Mises) - Torque: {T_user:.3f} N·m\n")
-        self.result_box.insert(tk.END, "="*85 + "\n")
-        self.result_box.insert(tk.END, f"Parafuso crítico: {result['critical_bolt']}\n")
-        self.result_box.insert(tk.END, f"FS mínimo do parafuso:        {result['fs_bolt_min']:.3f} {'OK' if result['fs_bolt_min'] >= 1.0 else 'CRÍTICO'}\n")
-        self.result_box.insert(tk.END, f"FS da junta (atrito):         {result['fs_joint']:.3f} {'OK' if result['fs_joint'] >= 1.0 else 'CRÍTICO'}\n")
-        moment = result.get('moment_vector', (0.0, 0.0, 0.0))
-        self.result_box.insert(tk.END, f"Momento resultante:           Mx={moment[0]:.1f} N·mm, My={moment[1]:.1f} N·mm, Mz={moment[2]:.1f} N·mm\n")
-        self.result_box.insert(tk.END, f"FS crítico (mínimo):          {min(result['fs_bolt_min'], result['fs_joint']):.3f}\n\n")
-
-        # MÉTODO 2: COEMI com torque ótimo
-        if T_optimal > 0:
-            calc_opt = VectorLoadCalculator(
+        # ========== CENÁRIO B: JUNTA DE ATRITO ==========
+        self.result_box.insert(tk.END, "="*95 + "\n")
+        self.result_box.insert(tk.END, "CENÁRIO B: JUNTA DE ATRITO (Friction Joint - COEMI)\n")
+        self.result_box.insert(tk.END, "-"*95 + "\n")
+        self.result_box.insert(tk.END, f"Alvo de segurança:         FS_junta ≥ {fs_friction_target:.2f}\n")
+        self.result_box.insert(tk.END, f"(Margem de 1.3x para vibrações e dispersão de aperto)\n\n")
+        
+        # Calcular resultados para Cenário B
+        friction_viable = result.get('friction_viable', False)
+        result_friction = None  # garante que result_friction sempre está definida
+        if T_friction_optimal > 0:
+            calc_friction = VectorLoadCalculator(
                 self.bolts, self.load, self.centroid,
-                self.bolt_props, result.get('T_optimal_Nmm', 0.0), float(self.mu_entry.get())
+                self.bolt_props, T_friction_optimal * 1000.0, float(self.mu_entry.get())
             )
-            result_opt = calc_opt.calculate()
-
-            self.result_box.insert(tk.END, "="*85 + "\n")
-            note = " (ajustado para FS_junta>=1)" if result_opt.get('fs_joint', 0) >= 1.0 else ""
-            self.result_box.insert(tk.END, f"MÉTODO 2: COEMI (Junta de atrito){note} - Torque: {T_optimal:.3f} N·m\n")
-            self.result_box.insert(tk.END, "="*85 + "\n")
-            self.result_box.insert(tk.END, f"Parafuso crítico: {result_opt['critical_bolt']}\n")
-            self.result_box.insert(tk.END, f"FS mínimo do parafuso:        {result_opt['fs_bolt_min']:.3f} {'OK' if result_opt['fs_bolt_min'] >= 1.0 else 'CRÍTICO'}\n")
-            self.result_box.insert(tk.END, f"FS da junta (atrito):         {result_opt['fs_joint']:.3f}\n")
-            self.result_box.insert(tk.END, f"FS crítico (mínimo):          {min(result_opt['fs_bolt_min'], result_opt['fs_joint']):.3f}\n\n")
-
-        # Detalhes por parafuso (com torque do usuário)
-        self.result_box.insert(tk.END, "DETALHES POR PARAFUSO (Torque do usuário em N·m):\n")
-        self.result_box.insert(tk.END, "-"*85 + "\n")
-        for b in result["per_bolt"]:
-            sep_status = " SEPARADO" if b.get("separated") else ""
-            self.result_box.insert(tk.END, 
-                f"{b['label']:<5} | FS parafuso: {b['fs_bolt']:>7.3f} | Fp: {b.get('Fp', 0):>9.1f} N | "
-                f"σeq: {b.get('sigma_eq', 0):>8.1f} MPa{sep_status}\n"
-            )
-
-        # Recomendação final
-        self.result_box.insert(tk.END, "\n" + "="*85 + "\n")
-        fs_shigley = min(result['fs_bolt_min'], result['fs_joint'])
-        
-        if T_optimal > 0:
-            fs_coemi = min(result_opt['fs_bolt_min'], result_opt['fs_joint'])
-            self.result_box.insert(tk.END, f"COMPARAÇÃO FINAL:\n")
-            self.result_box.insert(tk.END, f"  Shigley (T={T_user:.1f}): FS={fs_shigley:.3f}\n")
-            self.result_box.insert(tk.END, f"  COEMI ótimo (T={T_optimal:.1f}): FS={fs_coemi:.3f}\n\n")
+            result_friction = calc_friction.calculate()
             
-            if fs_shigley >= 1.0 and fs_coemi >= 1.0:
-                self.result_box.insert(tk.END, "RECOMENDAÇÃO: DESIGN VIÁVEL - Use o maior torque entre {:.1f} e {:.1f} N·mm\n".format(T_user, T_optimal))
-            elif fs_shigley >= 1.0:
-                self.result_box.insert(tk.END, f"RECOMENDAÇÃO: Use torque {T_user:.1f} N·mm (Shigley OK, considerar torque ótimo)\n")
-            elif fs_coemi >= 1.0:
-                self.result_box.insert(tk.END, f"RECOMENDAÇÃO: Use torque {T_optimal:.1f} N·mm (COEMI viável, Shigley revisar)\n")
+            self.result_box.insert(tk.END, f"Torque ótimo para FS_junta = {fs_friction_target}: {T_friction_optimal:.3f} N·m\n")
+            self.result_box.insert(tk.END, f"Pré-carga gerada (parafuso crítico): {result_friction.get('Fp', 0):.1f} N\n\n")
+            self.result_box.insert(tk.END, f"Parafuso crítico:          {result_friction['critical_bolt']}\n")
+            fs_b_friction = result_friction['fs_bolt_min']
+            fs_j_friction = result_friction['fs_joint']
+            self.result_box.insert(tk.END, f"FS mínimo do parafuso:     {fs_b_friction:.3f} {'✓ OK' if fs_b_friction > 1.0 else '✗ CRÍTICO — parafuso escoaria'}\n")
+            self.result_box.insert(tk.END, f"FS da junta (atrito):      {fs_j_friction:.3f} {'✓ OK' if fs_j_friction >= fs_friction_target else '✗ NÃO ATENDE'}\n")
+            
+            if fs_b_friction > 1.0 and fs_j_friction >= fs_friction_target:
+                friction_status = "✓ VIÁVEL"
+            elif fs_j_friction >= fs_friction_target:
+                friction_status = "✗ NÃO VIÁVEL — torque necessário excede resistência do parafuso; use diâmetro maior"
             else:
-                self.result_box.insert(tk.END, "RECOMENDAÇÃO: REVISÃO NECESSÁRIA - Ambos os métodos críticos\n")
+                friction_status = "✗ NÃO VIÁVEL"
+            self.result_box.insert(tk.END, f"Status Cenário B:          {friction_status}\n\n")
         else:
-            if fs_shigley >= 1.0:
-                self.result_box.insert(tk.END, f"RECOMENDAÇÃO: DESIGN VIÁVEL - Torque OK (FS={fs_shigley:.3f})\n")
-            else:
-                self.result_box.insert(tk.END, "RECOMENDAÇÃO: REVISÃO NECESSÁRIA - FS crítico\n")
+            self.result_box.insert(tk.END, f"Torque ótimo:              NÃO CALCULADO (verifique carregamento ou μ)\n")
+            self.result_box.insert(tk.END, f"Status Cenário B:          ✗ NÃO VIÁVEL\n\n")
+
+        # ========== RECOMENDAÇÃO FINAL ==========
+        self.result_box.insert(tk.END, "="*95 + "\n")
+        self.result_box.insert(tk.END, "RECOMENDAÇÃO FINAL\n")
+        self.result_box.insert(tk.END, "-"*95 + "\n")
         
-        self.result_box.insert(tk.END, "="*85 + "\n")
+        bearing_ok = result_bearing['fs_bolt_min'] >= 1.0
+        friction_ok = (result_friction is not None and
+                       result_friction.get('fs_bolt_min', 0) > 1.0 and
+                       result_friction.get('fs_joint', 0) >= fs_friction_target)
+        
+        if bearing_ok and friction_ok:
+            self.result_box.insert(tk.END, "Ambos os cenários são VIÁVEIS.\n")
+            self.result_box.insert(tk.END, f"• Cenário A (Apoio):   Torque = {T_bearing:.3f} N·m\n")
+            self.result_box.insert(tk.END, f"• Cenário B (Atrito):  Torque = {T_friction_optimal:.3f} N·m\n")
+            self.result_box.insert(tk.END, "\nEscolha conforme o tipo de junta:\n")
+            self.result_box.insert(tk.END, "  - Use Cenário A se a junta conta apenas com apoio (sem atrito confiável)\n")
+            self.result_box.insert(tk.END, "  - Use Cenário B se a junta pode contar com atrito entre as superfícies\n")
+        elif bearing_ok:
+            self.result_box.insert(tk.END, f"RECOMENDAÇÃO: Use Cenário A (Junta de Apoio) com torque = {T_bearing:.3f} N·m\n")
+            if result_friction is not None and result_friction.get('fs_joint', 0) >= fs_friction_target:
+                self.result_box.insert(tk.END, f"Cenário B: torque necessário ({T_friction_optimal:.1f} N·m) excede a resistência do parafuso.\n")
+                self.result_box.insert(tk.END, "  → Para usar a junta de atrito, aumente o diâmetro ou a classe do parafuso.\n")
+            else:
+                self.result_box.insert(tk.END, "Cenário B não atende aos requisitos de segurança.\n")
+        elif friction_ok:
+            self.result_box.insert(tk.END, f"RECOMENDAÇÃO: Use Cenário B (Junta de Atrito) com torque = {T_friction_optimal:.3f} N·m\n")
+            self.result_box.insert(tk.END, "Cenário A não é seguro com o torque padrão.\n")
+        else:
+            self.result_box.insert(tk.END, "⚠ AVISO: Nenhum cenário é viável com os parâmetros atuais.\n")
+            self.result_box.insert(tk.END, "Recomendações:\n")
+            self.result_box.insert(tk.END, "  • Aumentar o diâmetro do parafuso\n")
+            self.result_box.insert(tk.END, "  • Usar parafusos de classe maior\n")
+            self.result_box.insert(tk.END, "  • Aumentar o coeficiente de atrito (lapidação, tratamento de superfície)\n")
+            self.result_box.insert(tk.END, "  • Revisar o carregamento aplicado\n")
+        
+        self.result_box.insert(tk.END, "="*95 + "\n")

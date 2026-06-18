@@ -1,0 +1,92 @@
+Application Overview for AI Analysis
+
+Project: Junta Parafusada
+Location: d:\Downloads\ufs\TCC\junta_parafusada
+
+Purpose:
+- Python desktop application for bolted joint dimensioning using a GUI.
+- Uses Tkinter for the user interface.
+- Implements two dimensioning methods: Shigley (combined stress) and COEMI (friction-based torque optimization).
+
+Entry point:
+- main.py
+  - Creates Tk root window.
+  - Sets title and geometry.
+  - Instantiates AppController from controllers/app_controller.py.
+  - Starts Tk main loop.
+
+Key packages and modules:
+- controllers/
+  - app_controller.py: central UI workflow controller, switches views, manages state and calculations.
+- views/
+  - bolt_input_view.py
+  - bolt_layout_view.py
+  - bolt_properties_view.py
+  - joint_setup_view.py
+  - load_definition_view.py
+  - load_selection_view.py
+  - results_view.py
+  - dimensioning_view.py
+  - joint_canvas.py
+  - footer.py
+  - These classes handle screens for joint setup, bolt layout, bolt property selection, load definition, and results display.
+- models/
+  - bolt.py, bolt_group.py, bolt_properties.py, bolt_material.py, bolt_iso.py, bolt_properties.py
+  - centroid.py, joint_parameters.py, load.py
+  - These represent bolt geometry, material properties, joint state, centroid, and load definitions.
+- calculations/
+  - bolt_group.py
+  - combined_stress.py
+  - eccentric_in_plane.py
+  - eccentric_out_of_plane.py
+  - friction_joint.py
+  - joint_friction.py
+  - preload.py
+  - safety_analysis.py
+  - shear_centered.py
+  - shear_centered_with_torque.py
+  - torque_model.py
+  - vector_load.py
+  - These modules perform structural calculations, stress evaluation, preload/torque, friction safety factors, and load transformations.
+- loads/
+  - base_load.py, combined_load.py, eccentric_in_plane.py, eccentric_out_of_plane.py, symmetric_load.py, vector_load.py
+  - Defines different load types accepted by the app.
+
+High-level workflow:
+1. Joint Setup screen: collect number of bolts, joint width, joint height.
+2. Bolt Layout screen: add bolts by x,y positions; validate bolts inside joint bounds; compute centroid.
+3. Bolt Properties screen: select bolt diameter, series, material/class.
+4. Load Definition screen: choose between centered load, in-plane eccentric, and out-of-plane eccentric loads.
+5. Results screen: compare user-defined torque and COEMI recommended torque, show safety factors for bolts and the joint.
+
+Calculation methods:
+- Shigley method:
+  - Calculates bolt preload Fp from material yield and area.
+  - Calculates torque from preload and bolt diameter.
+  - Computes equivalent von Mises stress and bolt safety factor FS_parafuso.
+  - Computes joint friction safety factor FS_junta = (μ × ΣFp) / F.
+- COEMI method:
+  - Computes optimal torque T_optimal = F / (0.20 × μ × n_bolts × n_interfaces).
+  - Recalculates preload and safety factors using optimal torque.
+  - Aims for joint safety factor near 1.0.
+
+What the AI should analyze:
+- The UI workflow and how screens pass state through AppController.
+- The calculation logic in calculations/ and how it maps to bolted joint design.
+- The models used to represent bolts, materials, loads, and joint geometry.
+- Input validation and potential weaknesses in GUI state management.
+- Differences between the two dimensioning methods and how results are presented.
+
+How to use this text with another AI:
+- Paste the contents of this file as a project summary.
+- Point the AI to the project root and the key files listed above.
+- Ask the AI to describe architecture, calculation logic, user flow, and potential issues.
+
+Run instructions:
+- Execute the app with: python main.py
+- The application opens a Tkinter window and walks through the dimensioning workflow.
+
+Notes:
+- The app is a desktop GUI application, not a web app.
+- No changes were made to the application code.
+- This file is intended as a textual summary for an external AI to understand the project.
